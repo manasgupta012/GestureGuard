@@ -1,60 +1,78 @@
+import os
 import cv2
 import time
+from datetime import datetime
+from pushbullet import Pushbullet  # Imports the Pushbullet library
+from gesture_detector import GestureDetector 
 
-from gesture_detector import GestureDetector
-from notifier import send_alert
+# --- CONFIGURATION ---
+# Your live access token is locked in right here:
+API_KEY = "o.DSQiMuaxPHYIs74I75i4DnHIzlZzsAda" 
 
-detector = GestureDetector()
+def send_phone_notification(timestamp):
+    """Sends a push notification directly to your smartphone via Pushbullet."""
+    try:
+        pb = Pushbullet(API_KEY)
+        title = "🚨 EMERGENCY: GestureGuard Alert!"
+        body = f"An SOS gesture was detected and verified at {timestamp}. Please check the monitor."
+        
+        # This pushes the notification to your Android phone
+        pb.push_note(title, body)
+        print("📱 PUSH NOTIFICATION SENT SUCCESSFULLY TO YOUR PHONE!")
+    except Exception as e:
+        print(f"❌ Failed to send phone notification: {e}")
 
-cap = cv2.VideoCapture(0)
+def log_alert():
+    """Creates an 'alerts' folder if it doesn't exist and logs the incident."""
+    folder_path = "alerts"
+    file_path = os.path.join(folder_path, "alerts.log")
+    
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+        print("📁 Created a brand-new 'alerts' folder!")
 
-# Alert cooldown tracking variables
-alert_cooldown = 10
-last_alert_time = 0
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"[ALERT] SOS Gesture Detected at: {current_time}\n"
+    
+    with open(file_path, "a") as log_file:
+        log_file.write(log_line)
+    
+    print(f"✨ NEW LOG WRITTEN successfully to: {file_path} at {current_time}")
+    
+    # Trigger your Android phone notification immediately after logging
+    send_phone_notification(current_time)
 
-while True:
+def main():
+    cap = cv2.VideoCapture(0)
+    detector = GestureDetector()
 
-    ret, frame = cap.read()
+    print("GestureGuard Running... Press 'q' to quit.")
 
-    if not ret:
-        break
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Could not read frame.")
+            break
 
-    frame = cv2.flip(frame, 1)
+        frame = cv2.flip(frame, 1)
 
-    # 1. Draw the ROI overlay zone on the screen
-    frame = detector.draw_roi(frame)
+        # 1. Process detection
+        is_sos_triggered = detector.detect(frame)
+        if is_sos_triggered:
+            print("🚨 SOS ALERT TRIGGERED! 🚨")
+            log_alert()  
 
-    # 2. Check if the updated detector registers a completed double-wave gesture
-    # FIXED: Re-added the exact assignment variable name 'detections' so it aligns with your architecture
-    detections = detector.detect(frame) 
+        # 2. Draw the UI overlays
+        frame = detector.draw_roi(frame)
 
-    current_time = time.time()
+        # 3. Display the frame
+        cv2.imshow("GestureGuard - SOS Detection", frame)
 
-    # 3. Handle Alert Triggering
-    if detections: # FIXED: Swapped 'double_wave_detected' to match 'detections'
-        # Check if we are outside the 10-second alert cooldown period
-        if current_time - last_alert_time > alert_cooldown:
-            print("SOS ALERT TRIGGERED")
-            send_alert()
-            last_alert_time = current_time
-            
-            # Draw a temporary visual confirmation on screen
-            cv2.putText(
-                frame,
-                "ALERT SENT!",
-                (20, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 255),  # Red color for alert
-                3
-            )
-        else:
-            print("Alert triggered, but blocked by cooldown period.")
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-    cv2.imshow("GestureGuard", frame)
+    cap.release()
+    cv2.destroyAllWindows()
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
